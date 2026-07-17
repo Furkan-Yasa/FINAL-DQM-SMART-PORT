@@ -1,30 +1,18 @@
 # 1. GEREKLİ KÜTÜPHANELERİN KURULUMU VE İÇE AKTARILMASI
 
-import numpy as np                      # Matematiksel işlemler ve matris yönetimi
-
-import matplotlib.pyplot as plt          # Grafik çizimi ve görselleştirme
-
-import matplotlib.colors as mcolors      # Renk haritaları (yeşil, sarı, kırmızı vs.)
-
-from matplotlib.patches import Rectangle # Render için dikdörtgen çizimi
-
-import random                            # Rastgele sayı üretimi (sipariş seçimi vb.)
-
-import gymnasium as gym                  # OpenAI Gymnasium (Pekiştirmeli öğrenme ortamı)
-
-from gymnasium import spaces             # Eylem ve durum uzayı tanımları
-
-import torch                             # PyTorch (Derin öğrenme kütüphanesi)
-
-import torch.nn as nn                    # Sinir ağı katmanları
-
-import torch.optim as optim              # Optimizasyon algoritmaları (Adam)
-
-from collections import deque            # Hızlı bellek (replay buffer) için veri yapısı
-
-import imageio                           # GIF oluşturmak için kareleri kaydetme
-
-from tqdm import tqdm                    # Eğitim sırasında ilerleme çubuğu
+    import numpy as np                      # Matematiksel işlemler ve matris yönetimi
+    import matplotlib.pyplot as plt          # Grafik çizimi ve görselleştirme
+    import matplotlib.colors as mcolors      # Renk haritaları (yeşil, sarı, kırmızı vs.)
+    from matplotlib.patches import Rectangle # Render için dikdörtgen çizimi
+    import random                            # Rastgele sayı üretimi (sipariş seçimi vb.)
+    import gymnasium as gym                  # OpenAI Gymnasium (Pekiştirmeli öğrenme ortamı)
+    from gymnasium import spaces             # Eylem ve durum uzayı tanımları
+    import torch                             # PyTorch (Derin öğrenme kütüphanesi)
+    import torch.nn as nn                    # Sinir ağı katmanları
+    import torch.optim as optim              # Optimizasyon algoritmaları (Adam)
+    from collections import deque            # Hızlı bellek (replay buffer) için veri yapısı
+    import imageio                           # GIF oluşturmak için kareleri kaydetme
+    from tqdm import tqdm                    # Eğitim sırasında ilerleme çubuğu
 
 # 2. ORTAMIN TANIMLANMASI
 
