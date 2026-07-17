@@ -1,39 +1,36 @@
-# ============================================================
-# PROJE: Çok Ajanlı Derin Q-Ağı (Multi-Agent DQN) ile Akıllı
-#         Liman Konteyner İstifleme ve Engel Yönetim Sistemi
-# ============================================================
-# Bu kod, 10x10 boyutundaki bir liman sahasında 18 konteynerin,
-# iki otonom vinç (DQN ajanı) tarafından iş birliği ile
-# istiflendiği bir simülasyon ortamıdır.
-# ============================================================
-
-# ============================================================
 # 1. GEREKLİ KÜTÜPHANELERİN KURULUMU VE İÇE AKTARILMASI
-# ============================================================
-# Google Colab üzerinde çalışmak için gerekli kütüphaneler
-# sessizce (-q) kurulur.
-!pip install -q imageio gymnasium stable-baselines3
 
 import numpy as np                      # Matematiksel işlemler ve matris yönetimi
+
 import matplotlib.pyplot as plt          # Grafik çizimi ve görselleştirme
+
 import matplotlib.colors as mcolors      # Renk haritaları (yeşil, sarı, kırmızı vs.)
+
 from matplotlib.patches import Rectangle # Render için dikdörtgen çizimi
+
 import random                            # Rastgele sayı üretimi (sipariş seçimi vb.)
+
 import gymnasium as gym                  # OpenAI Gymnasium (Pekiştirmeli öğrenme ortamı)
+
 from gymnasium import spaces             # Eylem ve durum uzayı tanımları
+
 import torch                             # PyTorch (Derin öğrenme kütüphanesi)
+
 import torch.nn as nn                    # Sinir ağı katmanları
+
 import torch.optim as optim              # Optimizasyon algoritmaları (Adam)
+
 from collections import deque            # Hızlı bellek (replay buffer) için veri yapısı
+
 import imageio                           # GIF oluşturmak için kareleri kaydetme
+
 from tqdm import tqdm                    # Eğitim sırasında ilerleme çubuğu
 
-# ============================================================
-# 2. GYM UYUMLU ORTAM SINIFI (ContainerYardEnv)
-# ============================================================
-# Bu sınıf, liman sahasını, vinçleri, konteynerleri ve tüm
-# operasyonel kuralları modelleyen ana simülasyon ortamıdır.
-class ContainerYardEnv(gym.Env):
+# 2. ORTAMIN TANIMLANMASI
+
+Bu sınıf, liman sahasını, vinçleri, konteynerleri ve tüm operasyonel kuralları modelleyen ana simülasyon ortamının kodlarıdır.
+
+    class ContainerYardEnv(gym.Env):
     def __init__(self):
         super().__init__()
 
@@ -170,11 +167,93 @@ class ContainerYardEnv(gym.Env):
         self._prev_distance1 = self._get_distance(self.crane1_pos, self._get_current_target())
         return self._get_obs(), {}  # Başlangıç durum vektörünü döndür.
 
-    # ============================================================
-    # 3. YARDIMCI FONKSİYONLAR
-    # ============================================================
+# 3. Yardımcı Fonksiyonlar
 
-    def _get_distance(self, pos, target):
+1. _get_distance(self, pos, target)
+
+İki grid hücresi arasındaki Manhattan mesafesini hesaplar.
+
+Ajanın hedefe ne kadar yakın olduğunu ölçer. Hedefe yaklaşma bonusu ve hedeften uzaklaşma cezası bu fonksiyonun çıktısına göre verilir.
+
+Ayrıca, en yakın konteynerin seçiminde de kullanılır.
+
+2. _get_current_target(self)
+
+Vinç‑1'in o anki aktif hedefini döndürür.
+
+Eğer vinç bir konteyner taşıyorsa hedef, drop (bırakma) noktasıdır (target_pos). 
+
+Boşta ise hedef, pickup (alma) noktasıdır (next_pickup_target). Bu sayede ajan her an doğru hedefe yönlendirilir.
+
+3. _get_obs(self)
+
+Ortamın tüm durumunu 64 boyutlu bir numpy vektörüne dönüştürür.
+
+DQN ajanının gözlem yapabilmesi için gereken durum temsili (state representation) budur. 
+
+Vinç konumları, konteynerlerin alınma durumu, istif alanındaki yığınların en üstündeki ID, sipariş bilgisi gibi tüm önemli bilgileri normalize ederek içerir.
+
+4. _is_blocked(self, pos, crane_id)
+
+Belirli bir hücrenin, belirli bir vinç için engel olup olmadığını kontrol eder.
+
+Çarpışma (collision) kurallarının tamamı buradadır:
+
+Her iki vinç için de bloklu alanlar ve diğer vinç engeldir.
+
+Vinç‑1 sadece yük taşırken diğer konteynerleri engel olarak görür (pickup'a giderken engel yoktur).
+
+Vinç‑2 için konteynerler asla engel değildir (tam serbest hareket eder).
+
+5. _is_in_stacking_area(self, pos)
+   
+Verilen pozisyonun 4x4'lük istif alanı (satır 3-6, sütun 0-3) içinde olup olmadığını kontrol eder.
+
+Vinç‑1'in sadece bu alan içinde drop yapabilmesini sağlar; ayrıca geçici depolama yeri ararken bu alanın kullanılmasını engeller.
+
+6. _is_in_temp_storage(self, pos)
+   
+Verilen pozisyonun geçici depolama alanı (sütun 7-9) içinde olup olmadığını kontrol eder.
+
+Vinç‑2'nin engelleri sadece bu bölgeye bırakmasını teşvik eden kontrol mekanizmasının bir parçasıdır.
+
+7. _get_container_at(self, pos)
+
+Belirtilen konumda, alınabilecek durumda (daha önce alınmamış ve teslim edilmemiş) bir konteyner varsa ID'sini döndürür.
+
+Hem Vinç‑1 hem de Vinç‑2 için pickup işleminin temelini oluşturur. Sadece pickup noktasında işlem yapılmasını garantiler.
+
+8. _find_empty_temp_spot(self, size)
+   
+Geçici depolama alanında (sütun 7‑9), verilen boyutlar için soldan sağa, yukarıdan aşağıya boş bir yer arar.
+
+Vinç‑2'nin engelleri düzenli ve çakışmasız bir şekilde geçici depoya bırakabilmesi için gerekli altyapıdır.
+
+9. _find_stacking_position(self, container_id, rotated=False)
+    
+Bir konteyner için istif alanında uygun bir pozisyon arar. Önce rotasyonsuz, bulamazsa rotasyonlu dener.
+
+Projenin en kritik fonksiyonudur; aşağıdaki tüm kuralları bir arada yönetir:
+
+Rotasyon: rotated=True olduğunda boyutları yer değiştirir (1x3 ↔ 3x1).
+
+3B Üst Üste İstifleme: level seviyesine göre yığınları kontrol eder.
+
+Alt Dolu Olma Zorunluluğu: Bir üst seviyeye koymak için alt seviyenin dolu olmasını şart koşar.
+
+İstif Hiyerarşisi: Üste konulacak konteynerin önceliğinin, alttakinden daha düşük (sayıca büyük) olmasını zorunlu kılar. (Yeşil üstüne Sarı/Kırmızı; Sarı üstüne Kırmızı).
+
+10. _update_targets(self)
+    
+Vinç‑1'in hedef pozisyonlarını ve beklenen önceliği günceller.
+
+Drop hedefinin belirlenmesi: _find_stacking_position çağrılarak en uygun drop noktası bulunur.
+
+Öncelik sıralı pickup: Kalan siparişler önce önceliğe (yeşil > sarı > kırmızı), sonra mesafeye göre sıralanır. Böylece ajan daima doğru sırada konteyner almaya yönlendirilir.
+
+Beklenen öncelik: expected_priority değişkeni set edilerek, pickup sırasında öncelik kontrolü yapılabilir hale gelir.
+
+        def _get_distance(self, pos, target):
         """İki nokta arasındaki Manhattan (grid) mesafesini hesaplar."""
         if target is None: return 0.0
         return abs(pos[0] - target[0]) + abs(pos[1] - target[1])
@@ -352,9 +431,58 @@ class ContainerYardEnv(gym.Env):
             self.next_pickup_target = None
             self.expected_priority = None
 
-    # ============================================================
-    # 4. ADIM FONKSİYONU (ÇİFT AJAN STEP)
-    # ============================================================
+# 4. ADIM FONKSİYONU (ÇİFT AJAN STEP)
+
+step fonksiyonu, projenin kalbidir.
+
+Her iki DQN ajanının (Vinç‑1 ve Vinç‑2) seçtiği eylemleri aynı anda işleyerek simülasyonu bir adım ilerletir ve ortak bir ödül sinyali üretir. 
+
+Aşağıda bu fonksiyonun her bir bölümünü, hangi özellikleri sağladığını belirterek açıklıyorum.
+
+GENEL YAPISI 
+
+    def step(self, action1, action2):
+    self.steps += 1
+    reward = -0.1  # Her adım için küçük zaman cezası (ajanı hızlı olmaya teşvik eder)
+    self.rotation_msg = "" 
+
+Bu şekildedir.
+
+Amaç: Ajanları sürekli hareket etmeye ve görevi mümkün olan en kısa sürede bitirmeye zorlar.
+
+Kapsadığı özellik: Zaman cezası (time penalty) – tüm pekiştirmeli öğrenme problemlerinde olduğu gibi.
+
+step Fonksiyonunda Birleşen Tüm Özellikler
+
+Özellik                                       Nerede?
+
+Zaman cezası	                    reward = -0.1
+
+Çarpışma (collision)	            Hareket kontrolleri ve blocked cezası
+
+Hedef yaklaşma bonusu	            new_dist < old_dist kontrolü
+
+Pickup bekleme cezası	            action1 != 4 kontrolü
+
+Öncelik sıralı pickup	            priority == expected_priority kontrolü
+
+Rotasyon	                        _find_stacking_position(…, rotated=True)
+
+3B üst üste istifleme              	stack.append(cid) ve seviye yönetimi
+
+İstif hiyerarşisi                  	_find_stacking_position içinde
+
+Engel kaldırma (Vinç‑2)            	action2 == 4 ve action2 == 5
+    
+Geçici depolama	                    _find_empty_temp_spot() ve _is_in_temp_storage()
+
+Artan teslimat ödülü	            reward += 10.0 * delivered
+
+Tüm siparişler tamamlanınca durma	self.done = True ve +20.0 ödül
+
+Bu fonksiyon, projenin tüm işleyişini tek bir yerde toplar; hem fiziksel hem de operasyonel kuralların DQN ajanları tarafından öğrenilmesini sağlayan ödül mekanizmalarını içerir.
+
+
     def step(self, action1, action2):
         """
         Bir zaman adımını işler.
@@ -522,9 +650,44 @@ class ContainerYardEnv(gym.Env):
 
         return self._get_obs(), reward, self.done, False, {'rotation': self.rotation_msg}
 
-    # ============================================================
-    # 5. GÖRSELLEŞTİRME (RENDER) FONKSİYONU
-    # ============================================================
+# 5. GÖRSELLEŞTİRME RENDER FONKSIYONU
+Bu fonksiyon, ortamın o anki durumunu matplotlib kullanarak renkli bir ızgara olarak çizer.
+
+Simülasyonun GIF çıktısını oluşturmak ve eğitim sırasında görsel takip yapmak için kullanılır.
+
+Izgara Oluşturma ve Renklendirme:
+
+Boş bir (10x10) grid oluşturulur.
+
+Bloklu alanlar (ilk ve son 3 satırdaki 4 sütun) gri (1) ile işaretlenir.
+
+4x4'lük istif alanı (satır 3-6, sütun 0-3) döngüyle taranır. Eğer bir hücrede yığın (stack) varsa:
+
+En üstteki konteynerin seviyesi 1 veya daha büyükse (level >= 1) hücre mor (6) olur. Bu, "üst katın mor olması" kuralını doğrudan uygular.
+
+Seviye 0 ise (zemin kat), konteynerin kendi rengi (yeşil 3, sarı 4, kırmızı 5) verilir.
+
+Hücre boşsa mavi (2) gösterilir.
+
+Alınmamış konteynerler (picked=False, delivered=False) hücreleri kendi öncelik renklerine boyanır.
+
+Görsel Detaylar:
+
+Siyah çizgilerle grid hücreleri ayrılır.
+
+Her konteynerin ismi (K0, K1, …) hücrelerinin ortasına yazdırılır.
+
+İstif alanındaki hücrelerde, en üstteki konteynerin ID’si ve varsa seviye numarası (L1, L2) gösterilir.
+
+Vinç‑1’in hedef drop noktası sarı kesikli kare, bir sonraki pickup hedefi ise önceliğe göre renkli kesikli kare ile işaretlenir.
+
+Vinç‑1 kırmızı yıldız, Vinç‑2 mavi yıldız ile gösterilir; taşıdıkları konteyner isimleri yanlarında belirir.
+
+Vinç‑2’nin bekleme noktası cyan kare ile işaretlenir.
+
+
+    
+    
     def render(self, ax=None):
         """Ortamın mevcut durumunu matplotlib kullanarak görselleştirir."""
         if ax is None: fig, ax = plt.subplots(figsize=(12, 10))
@@ -565,10 +728,63 @@ class ContainerYardEnv(gym.Env):
         # ...
         return ax
 
-# ============================================================
 # 6. DQN AJAN SINIFLARI
-# ============================================================
-class DQN(nn.Module):
+
+Pekiştirmeli öğrenmenin beyni olan bu iki sınıf, karar verme ve öğrenme mekanizmalarını içerir.
+
+A) DQN Sınıfı (Sinir Ağı Mimarisi)
+
+Yapı: PyTorch’un nn.Sequential ile oluşturulmuş, tam bağlantılı (fully-connected) 4 katmanlı bir derin sinir ağıdır.
+
+Mimari: 64 (giriş) → 512 → 512 → 256 → 128 → 6 (çıkış).
+
+Aktivasyon: Tüm gizli katmanlarda ReLU kullanılır.
+
+Görevi: 64 boyutlu durum vektörünü alıp, 6 eylem için Q‑değerlerini tahmin eder.
+
+B) DQNAgent Sınıfı (Ajanın Kendisi)
+
+__init__ (Başlangıç Parametreleri):
+
+memory: Deneyimlerin saklandığı Replay Buffer (maksimum 20.000 kayıt).
+
+gamma (0.95): Gelecek ödülleri bugüne indirgeme katsayısı.
+
+epsilon (1.0 → 0.01): Keşif/ sömürü dengesini kontrol eder. epsilon_decay (0.9995) ile her adımda yavaşça azalır.
+
+learning_rate (0.0003): Ağırlık güncelleme hızı.
+
+batch_size (128): Her öğrenme adımında hafızadan çekilen örnek sayısı.
+
+model ve target_model: Aynı mimaride iki ağ. target_model periyodik olarak model’e kopyalanarak eğitimi stabilize eder.
+
+optimizer: Adam optimizasyonu.
+
+criterion: Ortalama Kare Hata (MSE Loss) kayıp fonksiyonu.
+
+act(state) (Eylem Seçimi):
+
+Epsilon‑greedy politikasıyla çalışır. 
+
+Rastgele bir sayı epsilon’dan küçükse rastgele eylem seçer (keşif), değilse modelin tahmin ettiği en yüksek Q‑değerine sahip eylemi seçer (sömürü).
+
+remember(state, action, reward, next_state, done) (Deneyim Kaydı):
+
+Her adımda (state, action, reward, next_state, done) beşlisini replay buffer’a ekler.
+
+replay() (Öğrenme):
+
+Hafızadan rastgele batch_size kadar örnek seçer.
+
+Bellman Denklemi ile hedef Q‑değerini (target_q) hesaplar:
+
+target_q = reward + gamma * max_next_q (bölüm bittiyse sadece reward).
+
+Modelin mevcut tahmini (curr_q) ile hedef arasındaki MSE Loss’u hesaplar.
+
+Gradyan inişi (Adam) ile model ağırlıklarını günceller.
+
+    class DQN(nn.Module):
     """4 katmanlı tam bağlantılı Derin Q-Ağı."""
     def __init__(self, state_size, action_size):
         super().__init__()
@@ -581,7 +797,7 @@ class DQN(nn.Module):
         )
     def forward(self, x): return self.network(x)
 
-class DQNAgent:
+    class DQNAgent:
     """Deneyim tekrarı (experience replay) ve epsilon-greedy keşif içeren DQN ajanı."""
     def __init__(self, state_size, action_size):
         self.state_size = state_size; self.action_size = action_size
@@ -600,20 +816,45 @@ class DQNAgent:
         self.criterion = nn.MSELoss()      # Kayıp fonksiyonu (Ortalama Kare Hata)
     # ... (act, remember, replay fonksiyonları yukarıdaki kodda mevcut)
 
-# ============================================================
-# 7. EĞİTİM DÖNGÜSÜ
-# ============================================================
-print("Ortam oluşturuluyor...")
-env = ContainerYardEnv()
-state_size = env.state_size; action_size = 6
-agent1 = DQNAgent(state_size, action_size)  # Vinç-1 ajanı
-agent2 = DQNAgent(state_size, action_size)  # Vinç-2 ajanı
+#7. EĞİTİM DÖNGÜSÜ VE GİF OLUŞTURMA
 
-episodes = 2000
-print(f"Eğitim başlıyor... ({episodes} bölüm)")
+İki DQN ajanının aynı anda eğitilmesini sağlayan ana döngüdür.
 
-rewards_history = []
-for e in tqdm(range(episodes), desc="Eğitim"):
+Başlangıç: Ortam (env) ve iki ajan (agent1 için Vinç‑1, agent2 için Vinç‑2) oluşturulur.
+
+Ana Döngü (2000 bölüm):
+
+env.reset() ile ortam sıfırlanır, başlangıç durumu alınır.
+
+Her adımda:
+
+agent1.act(state) ve agent2.act(state) ile iki ajan da aynı durumu görerek bağımsız eylem seçer.
+
+env.step(action1, action2) ile ortam bir adım ilerler; yeni durum (next_state), ortak ödül (reward) ve bitti bilgisi (done) döner.
+
+agent1.remember(…) ve agent2.remember(…) ile her iki ajanın hafızasına aynı deneyim kaydedilir.
+
+Hafızada yeterli örnek birikince agent1.replay() ve agent2.replay() ile ajanlar kendi hafızalarından öğrenir.
+
+Bölüm bitince (done=True) her iki ajanın da hedef ağları güncellenir (update_target_model()).
+
+Bölüm ödülü rewards_history listesine eklenir. Her 200 bölümde bir ortalama ödül ve epsilon değerleri ekrana yazdırılır.
+
+Çıktı: Eğitim sonunda ödül grafiği çizilir ve eğitilmiş ajanlarla bir test bölümü çalıştırılıp GIF kaydedilir.
+
+Bu döngü, iki bağımsız DQN ajanının ortak bir ortamda, iş birliği içinde çalışmayı öğrenmesini sağlayan Multi‑Agent DQN mimarisinin tam uygulamasıdır.
+
+    print("Ortam oluşturuluyor...")
+    env = ContainerYardEnv()
+    state_size = env.state_size; action_size = 6
+    agent1 = DQNAgent(state_size, action_size)  # Vinç-1 ajanı
+    agent2 = DQNAgent(state_size, action_size)  # Vinç-2 ajanı
+
+    episodes = 2000
+    print(f"Eğitim başlıyor... ({episodes} bölüm)")
+
+    rewards_history = []
+    for e in tqdm(range(episodes), desc="Eğitim"):
     state, _ = env.reset()
     total_reward = 0
     while True:
@@ -642,5 +883,5 @@ for e in tqdm(range(episodes), desc="Eğitim"):
         avg = np.mean(rewards_history[-200:])
         tqdm.write(f"Bölüm: {e+1}/{episodes}, Ort. Ödül: {avg:.2f}, E1: {agent1.epsilon:.3f}, E2: {agent2.epsilon:.3f}")
 
-print("Eğitim tamamlandı!")
-# ... (Grafik çizimi ve GIF oluşturma)
+    print("Eğitim tamamlandı!")
+    # ... (Grafik çizimi ve GIF oluşturma)
