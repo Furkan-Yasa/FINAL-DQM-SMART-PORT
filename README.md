@@ -88,6 +88,8 @@ Artık iki ajan (Vinç-1 ve Vinç-2), aynı ortamdan gözlem yaparak ve ortak bi
 
 Vinç-1 siparişleri toplamayı, Vinç-2 ise yolu açmayı ve iş bitince her şeyi eski haline getirmeyi kendi kendine öğrenmeye başladı.
 
+10x10'luk gridde eğitim katlanarak artacağından bu vinç-2 nin engel kaldırma işlemleri 5x10'luk gridde yapılmıştır.
+
 # Son Durum: Nihai Proje
 Proje, 10x10'luk bir haritada, 18 konteyner ve 2 otonom DQN ajanı ile tam kapasite çalışabilen bir simülasyon haline geldi.
 
